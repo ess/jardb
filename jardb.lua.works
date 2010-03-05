@@ -1,0 +1,55 @@
+function explode(div,str)
+  if (div=='') then return false end
+  local pos,arr = 0,{}
+  -- for each divider found
+  for st,sp in function() return string.find(str,div,pos,true) end do
+    table.insert(arr,string.sub(str,pos,st-1)) -- Attach chars left of current divider
+    pos = sp + 1 -- Jump past current divider
+  end
+  table.insert(arr,string.sub(str,pos)) -- Attach chars right of last divider
+  return arr
+end
+
+function read_query(packet)
+  if string.byte(packet) == proxy.COM_QUERY then
+    local query = string.sub(packet, 2)
+    print ("received"..query)
+    if string.match(string.upper(query), '^%s*CREATE') then
+      -- First set up our normal query to run
+      proxy.queries:append(1, string.char(proxy.COM_QUERY)..query)
+      -- Now run flush across all of the other nodes
+      dofile('/scaledb/scripts/flush.lua')
+      -- Return our initial query
+      return proxy.PROXY_SEND_QUERY
+    end
+    if string.match(string.upper(query), '^%s*DROP TABLE') or string.match(string.upper(query), '^%s*DROP DATABASE') then
+      -- First set up our normal query to run
+      proxy.queries:append(1, string.char(proxy.COM_QUERY)..query)
+      -- Now run flush across all of the other nodes
+      dofile('/scaledb/scripts/flush.lua')
+      -- Return our initial query
+      return proxy.PROXY_SEND_QUERY
+    end
+    if string.match(string.upper(query), '^%s*INSERT') then
+      -- Lock the table associated with this query on other nodes
+      shrapnel = explode(' ',string.upper(query))
+      next = false
+      for k,v in pairs(shrapnel) do
+        if next == true then
+          table = v
+          break
+        end
+        if v == "INTO" then
+          next = true
+        end
+      end 
+      --dofile('/scaledb/scripts/flush_lock.lua')
+      -- Set up our normal query to run
+      proxy.queries:append(1, string.char(proxy.COM_QUERY)..query)
+      -- Now run flush across all of the other nodes
+      dofile('/scaledb/scripts/flush.lua')
+      -- Return our initial query
+      return proxy.PROXY_SEND_QUERY
+    end
+  end
+end
